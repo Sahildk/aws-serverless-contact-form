@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  aws-serverless-contact-form
+  Serverless contact form backend using API Gateway, Lambda (Python 3.12), and Amazon SES.
+
+# --------------------------------------------------------------------------- #
+#  Global defaults for all Lambda functions                                    #
+# --------------------------------------------------------------------------- #
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 128
+    Environment:
+      Variables:
+        RECIPIENT_EMAIL: !Ref RecipientEmail
+        SENDER_EMAIL: !Ref SenderEmail
+
+# --------------------------------------------------------------------------- #
+#  Parameters — supply values during `sam deploy --guided`                     #
+# --------------------------------------------------------------------------- #
+Parameters:
+  RecipientEmail:
+    Type: String
+    Description: "SES-verified email address that receives contact form submissions."
+    AllowedPattern: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+    ConstraintDescription: "Must be a valid email address."
+
+  SenderEmail:
+    Type: String
+    Description: "SES-verified email address used as the sender (From:)."
+    AllowedPattern: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+    ConstraintDescription: "Must be a valid email address."
+
+  Environment:
+    Type: String
+    Default: "prod"
+    AllowedValues: ["dev", "staging", "prod"]
+    Description: "Deployment environment tag."
+
+# --------------------------------------------------------------------------- #
+#  Resources                                                                   #
+# --------------------------------------------------------------------------- #
+Resources:
+
+  # ── IAM Role for Lambda ─────────────────────────────────────────────────── #
+  ContactFormLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "ContactFormLambdaRole-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Allows writing CloudWatch Logs
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SESEmailPermissions
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+
+  # ── Lambda Function ──────────────────────────────────────────────────────── #
+  ContactFormFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "contact-form-handler-${Environment}"
+      Description: "Handles contact form submissions and sends email via SES."
+      Handler: lambda_function.lambda_handler
+      CodeUri: ../backend/
+      Role: !GetAtt ContactFormLambdaRole.Arn
+      Events:
+        # POST /contact
+        ContactPost:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactFormApi
+            Path: /contact
+            Method: POST
+        # OPTIONS /contact (CORS preflight)
+        ContactOptions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactFormApi
+            Path: /contact
+            Method: OPTIONS
+      Tags:
+        Project: aws-serverless-contact-form
+        Environment: !Ref Environment
+
+  # ── HTTP API Gateway ─────────────────────────────────────────────────────── #
+  ContactFormApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Environment
+      Description: "HTTP API for the serverless contact form."
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowHeaders:
+          - "Content-Type"
+          - "X-Amz-Date"
+          - "Authorization"
+          - "X-Api-Key"
+        AllowMethods:
+          - "OPTIONS"
+          - "POST"
+        MaxAge: 86400
+      Tags:
+        Project: aws-serverless-contact-form
+        Environment: !Ref Environment
+
+# --------------------------------------------------------------------------- #
+#  Outputs                                                                     #
+# --------------------------------------------------------------------------- #
+Outputs:
+  ApiEndpoint:
+    Description: "API Gateway endpoint URL — set this as NEXT_PUBLIC_API_URL in frontend/.env.local"
+    Value: !Sub "https://${ContactFormApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/contact"
+    Export:
+      Name: !Sub "ContactFormApiEndpoint-${Environment}"
+
+  LambdaFunctionArn:
+    Description: "ARN of the deployed Lambda function."
+    Value: !GetAtt ContactFormFunction.Arn
+
+  LambdaRoleArn:
+    Description: "ARN of the Lambda execution IAM role."
+    Value: !GetAtt ContactFormLambdaRole.Arn
