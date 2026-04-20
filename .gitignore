@@ -51,3 +51,20 @@ desktop.ini
 *.zip
 *.tar.gz
 lambda.zip
+.aws-sam/
+
+# === AI tool internal files (not project code) ===
+AGENTS.md
+CLAUDE.md
+**/AGENTS.md
+**/CLAUDE.md
+
+# === Local docs (not for repo) ===
+professor_demo_guide.md
+
+# === Auto-generated Next.js boilerplate README (we have our own) ===
+frontend/README.md
+
+# === Next.js build output (subfolder explicit) ===
+frontend/.next/
+frontend/out/
